@@ -65,18 +65,26 @@ var API = (function () {
     var url = applyProxy(opts.apiUrl, opts.proxy);
     var headers = { "Content-Type": "application/json" };
     if (opts.apiKey && opts.apiKey.trim()) headers["Authorization"] = "Bearer " + opts.apiKey.trim();
-    var body = JSON.stringify({ model: opts.model, messages: opts.messages, stream: true });
+    var payload = { model: opts.model, messages: opts.messages, stream: true };
+    if (typeof opts.maxTokens === "number") payload.max_tokens = opts.maxTokens;
+    if (typeof opts.temperature === "number") payload.temperature = opts.temperature;
+    var body = JSON.stringify(payload);
     var retriesLeft = (typeof opts.maxRetries === "number") ? opts.maxRetries : 1;
     function attempt() {
+      var ctrl = new AbortController(), timedOut = false, timer = null;
+      if (opts.signal) opts.signal.addEventListener("abort", function () { try { ctrl.abort(); } catch (e) {} }, { once: true });
+      if (opts.timeoutMs) timer = setTimeout(function () { timedOut = true; try { ctrl.abort(); } catch (e) {} }, opts.timeoutMs);
       var full = "";
-      return fetch(url, { method: "POST", headers: headers, body: body, signal: opts.signal })
+      return fetch(url, { method: "POST", headers: headers, body: body, signal: ctrl.signal })
         .then(function (resp) {
           if (!resp.ok) return resp.text().then(function (t) { var e = new Error("HTTP " + resp.status + " " + t.slice(0, 300)); e.httpStatus = resp.status; throw e; });
           return readSSE(resp, function (piece, f) { full = f; if (opts.onDelta) opts.onDelta(piece, f); });
         })
-        .then(function () { if (opts.onDone) opts.onDone(full); })
+        .then(function () { if (timer) clearTimeout(timer); if (opts.onDone) opts.onDone(full); })
         .catch(function (err) {
-          if (err && err.name === "AbortError") return;
+          if (timer) clearTimeout(timer);
+          if (err && err.name === "AbortError" && !timedOut) return;
+          if (timedOut) err = new Error("请求超时：" + (opts.timeoutMs / 1000) + " 秒内未完成");
           var retryable = !err.httpStatus || err.httpStatus >= 500;
           if (retriesLeft > 0 && retryable) { retriesLeft--; return new Promise(function (r) { setTimeout(r, 700); }).then(attempt); }
           if (opts.onError) opts.onError(err);
@@ -89,10 +97,17 @@ var API = (function () {
     var url = applyProxy(opts.apiUrl, opts.proxy);
     var headers = { "Content-Type": "application/json" };
     if (opts.apiKey && opts.apiKey.trim()) headers["Authorization"] = "Bearer " + opts.apiKey.trim();
-    var body = JSON.stringify({ model: opts.model, messages: opts.messages, stream: false });
-    return fetch(url, { method: "POST", headers: headers, body: body, signal: opts.signal })
+    var payload = { model: opts.model, messages: opts.messages, stream: false };
+    if (typeof opts.maxTokens === "number") payload.max_tokens = opts.maxTokens;
+    if (typeof opts.temperature === "number") payload.temperature = opts.temperature;
+    var body = JSON.stringify(payload);
+    var ctrl = new AbortController(), timedOut = false, timer = null;
+    if (opts.signal) opts.signal.addEventListener("abort", function () { try { ctrl.abort(); } catch (e) {} }, { once: true });
+    if (opts.timeoutMs) timer = setTimeout(function () { timedOut = true; try { ctrl.abort(); } catch (e) {} }, opts.timeoutMs);
+    return fetch(url, { method: "POST", headers: headers, body: body, signal: ctrl.signal })
       .then(function (resp) { if (!resp.ok) return resp.text().then(function (t) { throw new Error("HTTP " + resp.status + " " + t.slice(0, 200)); }); return resp.json(); })
-      .then(function (j) { return (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || ""; });
+      .then(function (j) { if (timer) clearTimeout(timer); return (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || ""; })
+      .catch(function (err) { if (timer) clearTimeout(timer); if (timedOut) throw new Error("请求超时：" + (opts.timeoutMs / 1000) + " 秒内未完成"); throw err; });
   }
   function readSSE(resp, onDelta) {
     var reader = resp.body.getReader(), decoder = new TextDecoder("utf-8"), buffer = "", full = "";
@@ -259,18 +274,18 @@ var CRISIS_LEVEL_MAP = { L4: "P0", L3: "P1", L2: "P2", L1: "P3" };
 (function () {
   "use strict";
   var S = { IDLE: "idle", LISTENING: "listening", THINKING: "thinking", SPEAKING: "speaking" };
-  var LS_KEY = "leyi_kangyang_v2";
+  var LS_KEY = "leyi_kangyang_v3";
   var cfg = loadConfig();
   function loadConfig() {
     var def = {
       // 主：火山方舟 豆包（OpenAI 兼容）
       apiUrl: "https://ark.cn-beijing.volces.com/api/v3/chat/completions",
-      apiKey: "39cf2f78-4966-42ad-9c50-27f8b0c9f2c9",
+      apiKey: "",
       model: "doubao-seed-1-6-250615",
       vModel: "doubao-seed-1-6-250615",
       // 备：免费模型（豆包不可用时自动降级，保证现场不断）
       fbUrl: "https://text.pollinations.ai/openai", fbModel: "openai-large", fbVModel: "openai",
-      proxy: "", rate: "1", voice: ""
+      proxy: "", rate: "1", voice: "", timeoutMs: 12000, maxTokens: 160
     };
     try { var s = JSON.parse(localStorage.getItem(LS_KEY)); if (s) Object.assign(def, s); } catch (e) {}
     return def;
@@ -496,20 +511,36 @@ var CRISIS_LEVEL_MAP = { L4: "P0", L3: "P1", L2: "P2", L1: "P3" };
     var messages = buildMessages(sendText);
     aiCapEl = addCap("ai", "", false); aiCapEl.classList.add("streaming");
     abortCtrl = new AbortController();
-    var started = false;
+    var started = false, firstTokenMs = 0, reqStart = 0;
     function run(tier) {
+      var hasArkKey = !!(cfg.apiKey && cfg.apiKey.trim());
+      if (tier === 0 && !hasArkKey) return run(1);
       var isArk = tier === 0;
+      var modelName = isArk ? cfg.model : cfg.fbModel;
+      reqStart = performance.now(); started = false; firstTokenMs = 0;
+      console.info("[乐颐大模型] request", { provider: isArk ? "volc-ark" : "fallback", model: modelName, timeoutMs: cfg.timeoutMs, maxTokens: cfg.maxTokens });
       API.streamChat({
         apiUrl: isArk ? cfg.apiUrl : cfg.fbUrl,
         apiKey: isArk ? cfg.apiKey : "",
-        model: isArk ? cfg.model : cfg.fbModel,
+        model: modelName,
         proxy: cfg.proxy, messages: messages, signal: abortCtrl.signal, maxRetries: isArk ? 0 : 1,
-        onDelta: function (piece, full) { started = true; if (aiCapEl) { aiCapEl.textContent = full; scrollCaps(); } },
+        timeoutMs: parseInt(cfg.timeoutMs, 10) || 12000,
+        maxTokens: parseInt(cfg.maxTokens, 10) || 160,
+        temperature: 0.55,
+        onDelta: function (piece, full) {
+          if (!started) {
+            started = true; firstTokenMs = Math.round(performance.now() - reqStart);
+            console.info("[乐颐大模型] first_token", { provider: isArk ? "volc-ark" : "fallback", model: modelName, ms: firstTokenMs });
+          }
+          if (aiCapEl) { aiCapEl.textContent = full; scrollCaps(); }
+        },
         onDone: function (full) {
+          console.info("[乐颐大模型] done", { provider: isArk ? "volc-ark" : "fallback", model: modelName, firstTokenMs: firstTokenMs, totalMs: Math.round(performance.now() - reqStart), chars: (full || "").length });
           if (isArk && (!full || !full.trim()) && !started) { return run(1); }
           finishReply(full, rawText);
         },
         onError: function (err) {
+          console.warn("[乐颐大模型] error", { provider: isArk ? "volc-ark" : "fallback", model: modelName, ms: Math.round(performance.now() - reqStart), message: String(err && err.message || err) });
           if (isArk && !started) { toast("豆包接口暂不可用，已切换免费模型继续演示。", 3500); return run(1); }
           onReplyError(err);
         }
@@ -720,14 +751,22 @@ var CRISIS_LEVEL_MAP = { L4: "P0", L3: "P1", L2: "P2", L1: "P3" };
         resumeAfterTurn();
       }
     }
-    // 主：豆包视觉；失败降级免费视觉；再失败提示用卡片
-    API.chat({ apiUrl: cfg.apiUrl, apiKey: cfg.apiKey, model: cfg.vModel, proxy: cfg.proxy, messages: messages })
-      .then(onResult)
-      .catch(function () {
-        API.chat({ apiUrl: cfg.fbUrl, apiKey: "", model: cfg.fbVModel, proxy: cfg.proxy, messages: messages })
-          .then(onResult)
-          .catch(function (err) { toast("视觉识别失败：" + String(err.message || err).slice(0, 90) + "。请点下方模拟卡片演示。", 6000); resumeAfterTurn(); });
-      });
+    // 主：豆包视觉；无 Key 或失败时直接降级免费视觉；再失败提示用卡片
+    var hasArkKey = !!(cfg.apiKey && cfg.apiKey.trim());
+    var visionStart = performance.now();
+    console.info("[乐颐视觉模型] request", { provider: hasArkKey ? "volc-ark" : "fallback", model: hasArkKey ? cfg.vModel : cfg.fbVModel });
+    (hasArkKey
+      ? API.chat({ apiUrl: cfg.apiUrl, apiKey: cfg.apiKey, model: cfg.vModel, proxy: cfg.proxy, messages: messages, timeoutMs: 12000, maxTokens: 60, temperature: 0.2 })
+      : Promise.reject(new Error("no ark key")))
+      .catch(function (err) {
+        if (hasArkKey) console.warn("豆包视觉识别失败，降级免费模型", err);
+        return API.chat({ apiUrl: cfg.fbUrl, apiKey: "", model: cfg.fbVModel, proxy: cfg.proxy, messages: messages, timeoutMs: 12000, maxTokens: 60, temperature: 0.2 });
+      })
+      .then(function (name) {
+        console.info("[乐颐视觉模型] done", { ms: Math.round(performance.now() - visionStart), result: name });
+        onResult(name);
+      })
+      .catch(function (err) { toast("视觉识别失败：" + String(err.message || err).slice(0, 90) + "。请点下方模拟卡片演示。", 6000); resumeAfterTurn(); });
   }
 
   /* ---------- 场景切换 ---------- */
@@ -809,7 +848,8 @@ var CRISIS_LEVEL_MAP = { L4: "P0", L3: "P1", L2: "P2", L1: "P3" };
 
   function openSettings() {
     $("cfgUrl").value = cfg.apiUrl; $("cfgKey").value = cfg.apiKey; $("cfgModel").value = cfg.model;
-    $("cfgVModel").value = cfg.vModel; $("cfgRate").value = cfg.rate; loadVoices();
+    $("cfgVModel").value = cfg.vModel; $("cfgTimeout").value = cfg.timeoutMs; $("cfgMaxTokens").value = cfg.maxTokens;
+    $("cfgRate").value = cfg.rate; loadVoices();
     $("settingsOverlay").classList.remove("hidden"); $("settingsPanel").classList.remove("hidden");
   }
   function closeSettings() { $("settingsOverlay").classList.add("hidden"); $("settingsPanel").classList.add("hidden"); }
@@ -819,6 +859,8 @@ var CRISIS_LEVEL_MAP = { L4: "P0", L3: "P1", L2: "P2", L1: "P3" };
   $("saveSettings").addEventListener("click", function () {
     cfg.apiUrl = $("cfgUrl").value.trim() || cfg.apiUrl; cfg.apiKey = $("cfgKey").value.trim();
     cfg.model = $("cfgModel").value.trim() || cfg.model; cfg.vModel = $("cfgVModel").value.trim() || cfg.vModel;
+    cfg.timeoutMs = Math.max(4000, Math.min(30000, parseInt($("cfgTimeout").value, 10) || 12000));
+    cfg.maxTokens = Math.max(60, Math.min(400, parseInt($("cfgMaxTokens").value, 10) || 160));
     cfg.rate = $("cfgRate").value; cfg.voice = $("cfgVoice").value;
     saveConfig(); closeSettings(); toast("已保存设置", 2000);
   });

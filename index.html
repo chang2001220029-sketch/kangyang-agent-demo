@@ -358,10 +358,12 @@ html, body { margin: 0; padding: 0; height: 100%; background: #eaf1ef; color: va
       <label class="field"><span>API Key（火山方舟 Bearer）</span><input id="cfgKey" type="password" placeholder="火山方舟 API Key" autocomplete="off" /></label>
       <label class="field"><span>文本模型 ID（豆包 model / ep-）</span><input id="cfgModel" type="text" placeholder="doubao-seed-1-6-250615 或 ep-xxxx" /></label>
       <label class="field"><span>视觉模型 ID（药品识别用）</span><input id="cfgVModel" type="text" placeholder="doubao-seed-1-6-250615 或 ep-xxxx" /></label>
+      <label class="field"><span>大模型超时（毫秒）</span><input id="cfgTimeout" type="number" min="4000" max="30000" step="1000" placeholder="12000" /></label>
+      <label class="field"><span>回答长度上限（tokens）</span><input id="cfgMaxTokens" type="number" min="60" max="400" step="20" placeholder="160" /></label>
       <label class="field"><span>朗读语速</span><select id="cfgRate"><option value="0.9">慢</option><option value="1" selected>正常</option><option value="1.1">快</option></select></label>
       <label class="field"><span>朗读音色</span><select id="cfgVoice"></select></label>
       <button id="saveSettings" class="primary-btn">保存</button>
-      <p class="hint">默认接入火山方舟豆包大模型（对话更聪明、药品视觉更准）。若豆包调用失败（如 Key 无效/额度问题），系统会自动降级到免费模型继续演示，不会中断。请把「文本模型 ID / 视觉模型 ID」填成你在方舟「开通管理」里开通的确切模型（如 doubao-seed-1-6-250615，或创建推理接入点得到的 ep-xxxx）。</p>
+      <p class="hint">填写火山方舟 API Key 后会优先接入豆包；未填写或调用超时，会自动切换免费备用模型，保证演示不中断。建议公开网页不要内置 Key，现场演示时临时填写。请把「文本模型 ID / 视觉模型 ID」填成你在方舟「开通管理」里开通的确切模型（如 doubao-seed-1-6-250615，或创建推理接入点得到的 ep-xxxx）。</p>
     </div>
   </aside>
 
