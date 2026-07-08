@@ -136,7 +136,7 @@ function createAvatar(hostEl, opts) {
     '<svg class="avatarSvg" id="avatarSvg" viewBox="0 0 240 300" xmlns="http://www.w3.org/2000/svg">' +
       '<defs>' +
         '<linearGradient id="lyhair" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3a4260"/><stop offset="1" stop-color="#242a40"/></linearGradient>' +
-        '<linearGradient id="lycloth" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#67d6b3"/><stop offset="1" stop-color="#2d9f80"/></linearGradient>' +
+        '<linearGradient id="lycloth" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#48c69d"/><stop offset="1" stop-color="#0e7f68"/></linearGradient>' +
         '<radialGradient id="lyface" cx="0.5" cy="0.42" r="0.62"><stop offset="0" stop-color="#ffe5d0"/><stop offset="1" stop-color="#f4c9a8"/></radialGradient>' +
       '</defs>' +
       '<path d="M40 300 q0 -70 80 -70 q80 0 80 70 Z" fill="url(#lycloth)"/>' +
