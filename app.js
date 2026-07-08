@@ -40,7 +40,7 @@ var Emotion = (function () {
   }
   function sync() { if (!canvas || !video) return; var w = video.videoWidth, h = video.videoHeight; if (w && h && (canvas.width !== w || canvas.height !== h)) { canvas.width = w; canvas.height = h; } }
   function box(b) {
-    var x = canvas.getContext("2d"); x.strokeStyle = "rgba(79,140,255,0.9)"; x.lineWidth = Math.max(2, canvas.width / 200);
+    var x = canvas.getContext("2d"); x.strokeStyle = "rgba(103,214,179,0.9)"; x.lineWidth = Math.max(2, canvas.width / 200);
     var r = 10, X = b.x, Y = b.y, W = b.width, H = b.height; x.beginPath(); x.moveTo(X + r, Y);
     x.arcTo(X + W, Y, X + W, Y + H, r); x.arcTo(X + W, Y + H, X, Y + H, r); x.arcTo(X, Y + H, X, Y, r); x.arcTo(X, Y, X + W, Y, r); x.stroke();
   }
@@ -136,7 +136,7 @@ function createAvatar(hostEl, opts) {
     '<svg class="avatarSvg" id="avatarSvg" viewBox="0 0 240 300" xmlns="http://www.w3.org/2000/svg">' +
       '<defs>' +
         '<linearGradient id="lyhair" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3a4260"/><stop offset="1" stop-color="#242a40"/></linearGradient>' +
-        '<linearGradient id="lycloth" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4f8cff"/><stop offset="1" stop-color="#7c5cff"/></linearGradient>' +
+        '<linearGradient id="lycloth" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#67d6b3"/><stop offset="1" stop-color="#2d9f80"/></linearGradient>' +
         '<radialGradient id="lyface" cx="0.5" cy="0.42" r="0.62"><stop offset="0" stop-color="#ffe5d0"/><stop offset="1" stop-color="#f4c9a8"/></radialGradient>' +
       '</defs>' +
       '<path d="M40 300 q0 -70 80 -70 q80 0 80 70 Z" fill="url(#lycloth)"/>' +
